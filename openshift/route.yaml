@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: math-solution-spring-client
+  labels:
+    app.kubernetes.io/name: math-solution-spring-client
+spec:
+  to:
+    kind: Service
+    name: math-solution-spring-client
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: math-solution-spring-client
+
+databricks:
+  host: ${DATABRICKS_HOST:https://adb-7405618365754751.11.azuredatabricks.net}
+  app-url: ${DATABRICKS_APP_URL:https://math-solution-service-7405618365754751.11.azure.databricksapps.com}
+  client-id: ${DATABRICKS_CLIENT_ID}
+  client-secret: ${DATABRICKS_CLIENT_SECRET}
+  request-timeout: ${DATABRICKS_REQUEST_TIMEOUT:PT5M}
+  token-refresh-margin: ${DATABRICKS_TOKEN_REFRESH_MARGIN:PT5M}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+server:
+  port: ${SERVER_PORT:8888}
+
+logging:
+  level:
+    root: INFO
+    com.example.mathsolution: DEBUG
+    org.springframework.web.reactive.function.client: DEBUG
+    reactor.netty.http.client: DEBUG
+
