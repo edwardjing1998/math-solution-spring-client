@@ -1,57 +1,126 @@
-- name: Build and push container image
-  uses: docker/build-push-action@v6
-  with:
-    context: .
-    file: ./Dockerfile
-    push: true
-    tags: |
-      ${{ steps.image.outputs.repository }}:${{ steps.image.outputs.tag }}
-      ${{ steps.image.outputs.repository }}:latest
+name: Build and deploy to OpenShift
 
-- name: Install OpenShift CLI
-  uses: redhat-actions/openshift-tools-installer@v1
-  with:
-    source: mirror
-    oc: latest
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-- name: Verify OpenShift CLI
-  run: |
-    which oc
-    oc version --client
+permissions:
+  contents: read
+  packages: write
 
-- name: Log in to OpenShift
-  uses: redhat-actions/oc-login@v2
-  with:
-    openshift_server_url: ${{ secrets.OPENSHIFT_SERVER }}
-    openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
-    namespace: ${{ env.OPENSHIFT_NAMESPACE }}
-    insecure_skip_tls_verify: false
+concurrency:
+  group: openshift-production
+  cancel-in-progress: false
 
-- name: Verify OpenShift connection
-  run: |
-    oc whoami
-    oc whoami --show-server
-    oc project
-    oc auth can-i create deployments
+env:
+  APP_NAME: math-solution-spring-client
+  OPENSHIFT_NAMESPACE: ${{ vars.OPENSHIFT_NAMESPACE }}
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/math-solution-spring-client
 
-- name: Apply OpenShift resources
-  run: |
-    oc apply -k openshift
+jobs:
+  test-build-deploy:
+    name: Test, build and deploy
+    runs-on: ubuntu-latest
+    environment: production
 
-- name: Deploy immutable image
-  run: |
-    oc set image deployment/${APP_NAME} \
-      ${APP_NAME}=${{ steps.image.outputs.repository }}:${{ steps.image.outputs.tag }}
-    
-    oc rollout status \
-      deployment/${APP_NAME} \
-      --timeout=5m
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
 
-- name: Show route
-  run: |
-    ROUTE_HOST=$(
-      oc get route "${APP_NAME}" \
-        -o jsonpath='{.spec.host}'
-    )
-    
-    echo "Application URL: https://${ROUTE_HOST}"
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run tests
+        run: |
+          mvn --batch-mode \
+            --no-transfer-progress \
+            clean verify
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image coordinates
+        id: image
+        shell: bash
+        run: |
+          echo "repository=${REGISTRY}/${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image.outputs.repository }}:${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.repository }}:latest
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          source: mirror
+          oc: "latest"
+
+      - name: Verify OpenShift CLI
+        run: |
+          which oc
+          oc version --client
+
+      - name: Log in to OpenShift
+        uses: redhat-actions/oc-login@v2
+        with:
+          openshift_server_url: ${{ secrets.OPENSHIFT_SERVER }}
+          openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
+          namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+          insecure_skip_tls_verify: false
+
+      - name: Verify OpenShift connection
+        run: |
+          oc whoami
+          oc whoami --show-server
+          oc project
+          oc auth can-i create deployments
+          oc auth can-i create services
+          oc auth can-i create routes
+
+      - name: Apply OpenShift resources
+        run: |
+          oc apply -k openshift
+
+      - name: Deploy immutable image
+        run: |
+          oc set image deployment/${APP_NAME} \
+            ${APP_NAME}=${{ steps.image.outputs.repository }}:${{ steps.image.outputs.tag }}
+
+          oc rollout status \
+            deployment/${APP_NAME} \
+            --timeout=5m
+
+      - name: Show application status
+        run: |
+          oc get deployment "${APP_NAME}"
+          oc get pods \
+            -l app.kubernetes.io/name="${APP_NAME}"
+          oc get service "${APP_NAME}"
+          oc get route "${APP_NAME}"
+
+      - name: Show route
+        run: |
+          ROUTE_HOST=$(
+            oc get route "${APP_NAME}" \
+              -o jsonpath='{.spec.host}'
+          )
+
+          echo "Application URL: https://${ROUTE_HOST}"
