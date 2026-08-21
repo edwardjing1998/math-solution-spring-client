@@ -16,7 +16,7 @@ concurrency:
 
 env:
   APP_NAME: math-solution-spring-client
-  OPENSHIFT_NAMESPACE: math-solution
+  OPENSHIFT_NAMESPACE: ${{ vars.OPENSHIFT_NAMESPACE }}
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/math-solution-spring-client
 
